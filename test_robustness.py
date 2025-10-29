@@ -14,13 +14,11 @@ import seaborn as sns
 
 from src.model import GTSRB_CNN
 from src.robustness import get_robustness_transform
-from src.data_loader import get_gtsrb_datasets, get_mean_std
+from src.data_loader import get_gtsrb_datasets, get_mean_std, create_dataloaders
 
 
 def run_performance_tests(model, device, args):
-    """
-    Measures inference latency, throughput, and GPU memory usage.
-    """
+    """Measures inference latency, throughput, and GPU memory usage."""
     print("\n--- Running Performance Tests ---")
     model.eval()
 
@@ -65,48 +63,37 @@ def run_performance_tests(model, device, args):
 
 
 def run_robustness_tests(model, device, args):
-    """
-    Evaluates the model on various corruptions and severities.
-    """
+    """Evaluates the model on various corruptions and severities."""
     print("\n--- Running Robustness Tests ---")
 
-    # Load the raw test dataset (without any transforms yet)
-    raw_test_dataset = datasets.GTSRB(
-        root='./data', split='test', download=True)
+    # --- 1. Load Base Test Dataset ---
+    if args.official_test:
+        print("Using official GTSRB test set for robustness evaluation.")
+        test_dataset = datasets.GTSRB(root='./data', split='test', download=True)
+        _, train_dataset_no_norm = get_gtsrb_datasets()
+        mean, std = get_mean_std(train_dataset_no_norm)
+    else:
+        print("Using project split test set for robustness evaluation.")
+        _, _, test_loader_split, _, mean, std = create_dataloaders(batch_size=args.batch_size)
+        test_dataset = test_loader_split.dataset.dataset  # underlying dataset
 
-    # Load datasets WITHOUT normalization to compute mean/std
-    _, train_dataset_no_aug_no_norm = get_gtsrb_datasets()
-
-    # Calculate mean and std on the full training dataset (no normalization)
-    mean, std = get_mean_std(train_dataset_no_aug_no_norm)
-
-    corruption_types = [
-        'gaussian_noise', 'salt_pepper', 'brightness',
-        'contrast', 'rotation', 'occlusion'
-    ]
+    corruption_types = ['gaussian_noise', 'salt_pepper', 'brightness',
+                        'contrast', 'rotation', 'occlusion']
     results = {}
 
     for corruption in corruption_types:
         results[corruption] = []
         for severity in range(1, 6):
-            # 1. Get the specific corruption transform
-            corruption_transform = get_robustness_transform(
-                corruption, severity)
+            corruption_transform = get_robustness_transform(corruption, severity)
 
-            # 2. Create the full pipeline with normalization
             full_transform = transforms.Compose([
                 corruption_transform,
                 transforms.Normalize(mean, std)
             ])
+            test_dataset.transform = full_transform
+            test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
 
-            # 3. Apply transform to the dataset and create a loader
-            raw_test_dataset.transform = full_transform
-            test_loader = DataLoader(
-                raw_test_dataset, batch_size=args.batch_size, shuffle=False)
-
-            # 4. Evaluate accuracy
-            correct = 0
-            total = 0
+            correct, total = 0, 0
             with torch.no_grad():
                 for inputs, labels in tqdm(test_loader, desc=f"{corruption} sev {severity}", leave=False):
                     inputs, labels = inputs.to(device), labels.to(device)
@@ -115,12 +102,12 @@ def run_robustness_tests(model, device, args):
                     total += labels.size(0)
                     correct += (predicted == labels).sum().item()
 
-            accuracy = 100 * correct / total
-            results[corruption].append(accuracy)
-            print(
-                f"Corruption: {corruption}, Severity: {severity}, Accuracy: {accuracy:.2f}%")
+            acc = 100 * correct / total
+            results[corruption].append(acc)
+            print(f"Corruption: {corruption}, Severity: {severity}, Accuracy: {acc:.2f}%")
 
     return results
+
 
 
 def plot_robustness_results(results, save_dir):
@@ -144,26 +131,29 @@ def plot_robustness_results(results, save_dir):
 
 
 def main(args):
-    """ Main function to orchestrate the tests. """
+    """Main function to orchestrate robustness and performance tests."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
     os.makedirs(args.save_dir, exist_ok=True)
 
-    # Load Model
+    # Load model
     model = GTSRB_CNN(num_classes=43).to(device)
     model.load_state_dict(torch.load(args.model_path, map_location=device))
+    model.eval()
     print(f"Model loaded from {args.model_path}")
 
     # Run tests
-    robustness_results = run_robustness_tests(model, device, args)
-    run_performance_tests(model, device, args)
+    with torch.no_grad():
+        robustness_results = run_robustness_tests(model, device, args)
+        run_performance_tests(model, device, args)
 
-    # Save and plot robustness results
+    # Save results
     results_path = os.path.join(args.save_dir, 'robustness_results.json')
     with open(results_path, 'w', encoding='utf-8') as f:
         json.dump(robustness_results, f, indent=4)
     print(f"Robustness results saved to {results_path}")
 
+    # Plot
     plot_robustness_results(robustness_results, args.save_dir)
 
 
@@ -176,5 +166,7 @@ if __name__ == '__main__':
                         help='Directory to save test results and plots')
     parser.add_argument('--batch_size', type=int, default=128,
                         help='Batch size for testing')
+    parser.add_argument('--official_test', action='store_true',
+                        help='Use the official GTSRB test set instead of project split')
     args = parser.parse_args()
     main(args)

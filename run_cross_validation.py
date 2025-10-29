@@ -11,15 +11,11 @@ import json
 import os
 import argparse
 import torch
-from torch import nn
-from torch import optim
-from torch.utils.data import Subset
 from sklearn.model_selection import StratifiedKFold
 import numpy as np
 
 # Import our custom modules
 from src.data_loader import get_gtsrb_datasets
-from src.model import GTSRB_CNN
 from src.trainer import Trainer
 from src.experiments import set_seeds, make_fold_loaders, build_model_components
 
@@ -52,7 +48,7 @@ def run_fold(fold_num, train_indices, val_indices, base_dataset_no_norm, args, d
     print(f"\n----- Starting Fold {fold_num+1}/{args.k_folds} -----")
 
     # Build fold loaders using train-only statistics (leakage-safe)
-    train_loader, val_loader, mean, std = make_fold_loaders(
+    train_loader, val_loader, _, _ = make_fold_loaders(
         base_dataset_no_norm, train_indices, val_indices, batch_size=args.batch_size
     )
 

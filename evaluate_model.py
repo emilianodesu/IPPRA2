@@ -41,10 +41,12 @@ def main(args):
     # --- 3. Load Model ---
     model = GTSRB_CNN(num_classes=43).to(device)
     model.load_state_dict(torch.load(args.model_path, map_location=device))
+    model.eval() # Set model to evaluation mode
     print(f"Model loaded from {args.model_path}")
 
     # --- 4. Get Predictions ---
-    y_true, y_pred, y_scores = evaluate.get_predictions(model, test_loader, device)
+    with torch.no_grad():
+        y_true, y_pred, y_scores = evaluate.get_predictions(model, test_loader, device)
 
     # --- 5. Calculate and Display Metrics ---
     # Classification Report (Precision, Recall, F1, Balanced Accuracy)

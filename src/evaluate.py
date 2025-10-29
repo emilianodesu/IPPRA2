@@ -22,6 +22,7 @@ from sklearn.metrics import ConfusionMatrixDisplay
 import matplotlib.pyplot as plt
 from tqdm.auto import tqdm
 
+
 def get_predictions(model, data_loader, device):
     """Run inference and collect labels, argmax predictions, and probabilities.
 
@@ -111,16 +112,15 @@ def plot_confusion_matrix(y_true, y_pred, save_dir, num_classes=43):
     os.makedirs(save_dir, exist_ok=True)
     class_labels = [str(i) for i in range(num_classes)]
 
-    # --- Dynamic sizing for large label sets (e.g., GTSRB 43 classes) ---
-    # scales with number of classes: ~0.35 in per class, capped for readability
-    base_width = max(12, min(25, 0.35 * num_classes))
-    base_height = base_width * 0.85
-    figsize = (base_width, base_height)
-
-    # tick and text scaling
-    tick_fontsize = 3 if num_classes > 30 else 8
-    title_fontsize = 14
-    rotation = 90 if num_classes > 20 else 45
+    # --- Hardcoded-friendly sizing and ticks for GTSRB (43 classes) ---
+    # For very large class counts like 43, use a generous figure size and sparse ticks
+    figsize = (30, 30)
+    tick_fontsize = 8
+    rotation = 90
+    tick_step = 2  # show every 2nd label: 0,2,4,...
+    include_values = True
+    title_fontsize = 10
+    value_fontsize = 3  # NEW: smaller font for on-cell values
 
     def save_disp(title, filename, cmap, normalize=None, sample_weight=None):
         plt.figure(figsize=figsize)
@@ -130,18 +130,36 @@ def plot_confusion_matrix(y_true, y_pred, save_dir, num_classes=43):
             cmap=cmap,
             normalize=normalize,
             values_format=".0%" if normalize else None,
+            include_values=include_values,
             sample_weight=sample_weight,
             xticks_rotation=rotation,
             colorbar=True
         )
-        plt.title(title, fontsize=title_fontsize, pad=12)
+
+        # Shrink on-cell value text (works when include_values=True)
+        if include_values and hasattr(disp, "text_") and disp.text_ is not None:
+            # text_ can be list or ndarray across sklearn versions
+            texts = disp.text_.ravel() if hasattr(disp.text_, "ravel") else disp.text_
+            for t in texts:
+                t.set_fontsize(value_fontsize)
+
+        # Thin out tick labels to avoid overlap on large class counts
+        if tick_step > 1:
+            positions = np.arange(0, num_classes, tick_step)
+            tick_labels = [str(i) for i in positions]
+            disp.ax_.set_xticks(positions)
+            disp.ax_.set_xticklabels(tick_labels, rotation=rotation, fontsize=tick_fontsize)
+            disp.ax_.set_yticks(positions)
+            disp.ax_.set_yticklabels(tick_labels, fontsize=tick_fontsize)
+
+        plt.title(title, fontsize=title_fontsize)
         plt.xlabel("Predicted label", fontsize=10)
         plt.ylabel("True label", fontsize=10)
         plt.xticks(fontsize=tick_fontsize)
         plt.yticks(fontsize=tick_fontsize)
-        plt.tight_layout(pad=2.0)
+        plt.tight_layout()
         out_path = os.path.join(save_dir, filename)
-        plt.savefig(out_path, dpi=250)
+        plt.savefig(out_path, dpi=300)
         plt.close()
         return out_path
 
@@ -162,7 +180,7 @@ def plot_confusion_matrix(y_true, y_pred, save_dir, num_classes=43):
     )
 
     # --- 3) Weighted by misclassification (row-normalized) ---
-    sample_weight = (y_pred != y_true)
+    sample_weight = y_pred != y_true
     err_row = save_disp(
         title="Errors Normalized by Row (%)",
         filename="errors_normalized_row.png",
@@ -235,7 +253,8 @@ def plot_pr_curves(y_true, y_scores, save_dir, num_classes=43):
     plt.figure(figsize=(10, 8))
 
     # Compute micro-average PR curve and AP
-    precision, recall, _ = precision_recall_curve(y_true_bin.ravel(), y_scores.ravel())
+    precision, recall, _ = precision_recall_curve(
+        y_true_bin.ravel(), y_scores.ravel())
     ap = average_precision_score(y_true_bin, y_scores, average="micro")
     plt.plot(recall, precision, label=f'Micro-average PR curve (AP = {ap:0.2f})',
              color='navy', linestyle=':', linewidth=4)
