@@ -118,7 +118,7 @@ def plot_confusion_matrix(y_true, y_pred, save_dir, num_classes=43):
     figsize = (base_width, base_height)
 
     # tick and text scaling
-    tick_fontsize = 6 if num_classes > 30 else 8
+    tick_fontsize = 3 if num_classes > 30 else 8
     title_fontsize = 14
     rotation = 90 if num_classes > 20 else 45
 
@@ -149,7 +149,7 @@ def plot_confusion_matrix(y_true, y_pred, save_dir, num_classes=43):
     counts_path = save_disp(
         title="Confusion Matrix — Counts",
         filename="confusion_matrix_counts.png",
-        cmap="mako",
+        cmap="Blues",
         normalize=None
     )
 
@@ -157,7 +157,7 @@ def plot_confusion_matrix(y_true, y_pred, save_dir, num_classes=43):
     norm_path = save_disp(
         title="Confusion Matrix — Row-normalized (%)",
         filename="confusion_matrix_normalized.png",
-        cmap="mako",
+        cmap="Blues",
         normalize="true"
     )
 
@@ -166,7 +166,7 @@ def plot_confusion_matrix(y_true, y_pred, save_dir, num_classes=43):
     err_row = save_disp(
         title="Errors Normalized by Row (%)",
         filename="errors_normalized_row.png",
-        cmap="rocket",
+        cmap="Blues",
         normalize="true",
         sample_weight=sample_weight
     )
@@ -175,12 +175,12 @@ def plot_confusion_matrix(y_true, y_pred, save_dir, num_classes=43):
     err_col = save_disp(
         title="Errors Normalized by Column (%)",
         filename="errors_normalized_column.png",
-        cmap="rocket",
+        cmap="Blues",
         normalize="pred",
         sample_weight=sample_weight
     )
 
-    print(f"✅ Confusion matrices saved:\n"
+    print(f"Confusion matrices saved:\n"
           f" - {counts_path}\n"
           f" - {norm_path}\n"
           f" - {err_row}\n"
