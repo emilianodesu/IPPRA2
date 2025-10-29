@@ -71,7 +71,7 @@ def get_mean_std(dataset):
         tuple[torch.Tensor, torch.Tensor]: ``(mean, std)`` with shape ``[C]`` (C=3 for RGB).
     """
     # Note: We compute stats on the training split only.
-    loader = DataLoader(dataset, batch_size=min(512, len(dataset)), shuffle=False, num_workers=2)
+    loader = DataLoader(dataset, batch_size=len( dataset), num_workers=2, shuffle=False)
 
     data = next(iter(loader))
     # For single-channel, use data[0].mean() / .std(); for RGB, use per-channel stats.
