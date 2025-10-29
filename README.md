@@ -6,13 +6,13 @@ This repository contains a complete, production-ready pipeline for training and 
 
 This project is a comprehensive showcase of a professional machine learning workflow, including:
 
-  * **Modular Architecture**: A clean separation of concerns with dedicated modules for data loading, model definition, training, evaluation, and robustness testing.
-  * **Rigorous Evaluation**: Implements **5-fold stratified cross-validation** to provide a robust measure of the model's performance.
-  * **Hyperparameter Tuning**: Uses **Optuna** to systematically search for the optimal learning rate, ensuring peak model performance.
-  * **Comprehensive Metrics**: Generates a full suite of performance metrics, including **Top-K accuracy**, **balanced accuracy**, per-class **Precision/Recall/F1 scores**, and visualizations for **ROC/AUC** and **Precision-Recall curves**.
-  * **In-depth Robustness Analysis**: Tests the final model's resilience against a variety of data corruptions (Gaussian noise, salt & pepper, brightness, contrast, rotation, and occlusion) at multiple severity levels.
-  * **Performance Benchmarking**: Measures the computational performance of the final model, including inference **latency**, **throughput**, and **GPU memory usage**.
-  * **Leakage-Free Methodology**: Adopts a gold-standard approach by calculating normalization statistics independently for each training fold, ensuring that no information from the validation or test sets leaks into the training process.
+* **Modular Architecture**: A clean separation of concerns with dedicated modules for data loading, model definition, training, evaluation, and robustness testing.
+* **Rigorous Evaluation**: Implements **5-fold stratified cross-validation** to provide a robust measure of the model's performance.
+* **Hyperparameter Tuning**: Uses **Optuna** to systematically search for the optimal learning rate, ensuring peak model performance.
+* **Comprehensive Metrics**: Generates a full suite of performance metrics, including **Top-K accuracy**, **balanced accuracy**, per-class **Precision/Recall/F1 scores**, and visualizations for **ROC/AUC** and **Precision-Recall curves**.
+* **In-depth Robustness Analysis**: Tests the final model's resilience against a variety of data corruptions (Gaussian noise, salt & pepper, brightness, contrast, rotation, and occlusion) at multiple severity levels.
+* **Performance Benchmarking**: Measures the computational performance of the final model, including inference **latency**, **throughput**, and **GPU memory usage**.
+* **Leakage-Free Methodology**: Adopts a gold-standard approach by calculating normalization statistics independently for each training fold, ensuring that no information from the validation or test sets leaks into the training process.
 
 -----
 
@@ -21,28 +21,27 @@ This project is a comprehensive showcase of a professional machine learning work
 The codebase is organized into a `src` directory for reusable modules and a set of top-level scripts for running experiments.
 
 ```
-gtsrb_classification/
-├── data/                       # Dataset storage (auto-downloaded)
-├── models/                     # Saved model checkpoints (e.g., best_model.pth)
+IPPRA2/
+├── data/                        # Dataset cache (auto-downloaded by torchvision)
+├── models/                      # Saved model checkpoints
 ├── notebooks/
-│   └── 01_data_exploration.ipynb # Visual showcase of data and transforms
-├── results/                    # Output from evaluate_model.py
-├── results_cv/                 # Output from run_cross_validation.py
-├── results_robustness/         # Output from test_robustness.py
+│   └── 01_data_exploration.ipynb
+├── final_results_official_test/ # Evaluation on official test set
+├── final_results_split_test/    # Evaluation on project split test set
+├── results_cv/                  # Cross-validation outputs
 ├── src/
-│   ├── data_loader.py          # Data loading, transforms, and splitting
-│   ├── evaluate.py             # Performance metrics and plotting functions
-│   ├── experiments.py          # Shared utilities for CV and tuning
-│   ├── model.py                # CNN architecture definition
-│   ├── robustness.py           # Data corruption toolkit
-│   └── trainer.py              # Core training and validation loop
-├── .gitignore                  # Git ignore file
-├── evaluate_model.py           # Entry point for final model evaluation
-├── run_cross_validation.py     # Entry point for 5-fold cross-validation
-├── run_hyperparameter_tuning.py# Entry point for Optuna hyperparameter search
-├── test_robustness.py          # Entry point for robustness & performance tests
-├── train.py                    # Entry point for a single training run
-└── README.md                   # This file
+│   ├── data_loader.py           # Splits, transforms, (per-fold) normalization
+│   ├── evaluate.py              # Predictions, metrics, CM/ROC/PR plotting
+│   ├── experiments.py           # Shared builders: seeds, folds, model components
+│   ├── model.py                 # GTSRB_CNN architecture
+│   ├── robustness.py            # Corruption transforms (severity-aware)
+│   └── trainer.py               # Training/validation loop with tqdm
+├── evaluate_model.py            # Final evaluation entry point
+├── run_cross_validation.py      # K-fold CV (stratified, leakage-safe)
+├── run_hyperparameter_tuning.py # Optuna tuning (per-fold stats)
+├── test_robustness.py           # Robustness + performance tests
+├── train.py                     # Single training run
+└── README.md
 ```
 
 -----
@@ -122,3 +121,31 @@ python test_robustness.py --model_path models/best_model.pth --save_dir final_re
 ```
 
 This will generate the robustness degradation plot and print the inference speed and memory usage to the console.
+
+## Sanity and correctness guarantees
+
+* No data leakage
+  * create_dataloaders computes mean/std on the training split only.
+  * Cross-validation and tuning recompute mean/std per fold using TRAIN indices only.
+* Consistent transforms
+  * Corruptions applied after ToTensor, before Normalize.
+  * Occlusion severity controls square size (pixels), making effects predictable.
+* Determinism
+  * set_seeds(seed) called in scripts; reproducible runs by default.
+* Accurate evaluation
+  * Confusion matrix plotting tuned for 43 classes (larger canvas, sparse ticks, adjustable on-cell value font).
+  * get_predictions uses inference_mode + model.eval for speed and correctness.
+
+## Notebooks
+
+notebooks/01_data_exploration.ipynb
+
+* Class distribution (seaborn-styled, readable ticks, annotated counts).
+* One-sample-per-class ordered grid (0..42).
+* Visualizing training augmentations (stochastic).
+* Visualizing robustness corruptions at severities 1, 3, 5.
+
+## Acknowledgements
+
+* GTSRB dataset via torchvision.datasets.GTSRB
+* PyTorch, scikit-learn, seaborn, matplotlib, Optuna, tqdm
