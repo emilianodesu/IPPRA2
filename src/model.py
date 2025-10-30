@@ -100,7 +100,7 @@ if __name__ == '__main__':
     print("--- Testing the GTSRB_CNN model architecture ---")
 
     # Create a dummy input tensor with the expected shape (batch_size, channels, height, width)
-    dummy_input = torch.randn(16, 3, 32, 32)
+    dummy_input = torch.randn(64, 3, 32, 32)
 
     # Instantiate the model
     model = GTSRB_CNN(num_classes=43)
@@ -114,3 +114,20 @@ if __name__ == '__main__':
     # Print the number of trainable parameters
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Total trainable parameters: {total_params:,}")
+
+    try:
+        from torchviz import make_dot
+        print("\n--- Generating model diagram with torchviz ---")
+
+        # Create a diagram of the forward pass
+        diagram = make_dot(output, params=dict(model.named_parameters()))
+        diagram.render("../models/gtsrb_cnn_architecture", format="png", cleanup=True)
+        print("Diagram saved to 'gtsrb_cnn_architecture.png'")
+
+    except ImportError:
+        print("\nCould not generate diagram: 'torchviz' is not installed.")
+        print("Install it with: pip install torchviz")
+
+    print("Model Summary")
+    import torchinfo
+    torchinfo.summary(model, input_size=(64, 3, 32, 32), col_names=("input_size", "output_size"))
