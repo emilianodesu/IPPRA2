@@ -1,4 +1,32 @@
-# run_hyperparameter_tuning.py
+"""Hyperparameter tuning with Optuna for GTSRB classification.
+
+This script runs an Optuna study to optimize hyperparameters (currently the
+learning rate) for the :class:`src.model.GTSRB_CNN`. Each trial performs
+K-fold cross-validation where normalization statistics are computed on the
+TRAIN SPLIT ONLY per fold to avoid leakage, then datasets are rebuilt for
+training/validation of that fold. The objective returns mean validation
+accuracy across folds.
+
+Workflow
+--------
+1) Suggest hyperparameters for the trial (e.g., learning rate).
+2) Load the base dataset without normalization and build stratified folds.
+3) For each fold, compute train-only mean/std, rebuild datasets and loaders,
+     train the model, and record best validation accuracy.
+4) Return the mean accuracy across folds for Optuna to maximize.
+
+Command-line arguments
+----------------------
+--n_trials: Number of optimization trials to run (default: 25).
+
+Notes
+-----
+- Reproducibility: ``set_seeds`` is called for fold-level reproducibility of
+    augmentations and initializations.
+- Leakage-safety: Per-fold normalization is used (no peeking at validation).
+- Efficiency: Fewer folds and fewer epochs are used in tuning than in the
+    final cross-validation to reduce runtime while preserving ranking fidelity.
+"""
 
 import argparse
 import torch
@@ -62,13 +90,13 @@ def objective(trial):
     return float(mean_accuracy)
 
 
-def main(args):
+def main(parsed_args):
     """ Main function to start the hyperparameter search. """
-    print(f"--- Starting Hyperparameter Tuning for {args.n_trials} Trials ---")
+    print(f"--- Starting Hyperparameter Tuning for {parsed_args.n_trials} Trials ---")
 
     # Create a study object and specify the direction is to maximize accuracy
     study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=args.n_trials)
+    study.optimize(objective, n_trials=parsed_args.n_trials)
 
     print("\n--- Tuning Complete ---")
     print("Number of finished trials: ", len(study.trials))

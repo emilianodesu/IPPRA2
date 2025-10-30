@@ -1,4 +1,46 @@
-# test_robustness.py
+"""Robustness and performance evaluation entry point for GTSRB models.
+
+This script evaluates a trained :class:`src.model.GTSRB_CNN` on corrupted
+versions of the GTSRB test data across multiple severity levels and measures
+inference performance (throughput, latency, GPU memory). Results are saved to
+disk for analysis and reporting.
+
+Overview
+--------
+- Robustness tests iterate over corruption types (gaussian_noise, salt_pepper,
+    brightness, contrast, rotation, occlusion) and severities 1..5 using
+    :func:`src.robustness.get_robustness_transform`.
+- Performance tests run batched forward passes with CUDA synchronization to
+    collect stable latency/throughput and peak GPU memory metrics.
+- When `--official_test` is used, the script loads the official GTSRB test set
+    and applies normalization with per-training-split statistics (to avoid
+    leakage). Otherwise, it uses the project split test loader without reapplying
+    normalization.
+
+Outputs
+-------
+- ``<save_dir>/robustness_curves.png``: Line plot of accuracy vs. severity for
+    each corruption.
+- ``<save_dir>/performance_results.json``: Throughput, latency, and model size.
+- ``<save_dir>/all_test_results.json``: Combined robustness and performance.
+
+Command-line arguments
+----------------------
+--model_path: Path to a trained ``.pth`` file (state dict).
+--save_dir:   Directory to store JSONs and plots (created if missing).
+--batch_size: Batch size for evaluation and performance tests.
+--official_test: Use the official GTSRB test set instead of the project split.
+
+Notes
+-----
+- CUDA timing: We call ``torch.cuda.synchronize()`` before timing boundaries to
+    obtain accurate latency/throughput measurements on GPU.
+- Occlusion severity: In ``src.robustness``, occlusion severity controls the
+    side length (pixels) of a square mask for 32×32 inputs, ensuring predictable
+    effect strength.
+- Reproducibility: A fixed torch seed is set; see training and CV scripts for a
+    comprehensive seeding strategy across libraries.
+"""
 
 import argparse
 import os
@@ -94,7 +136,10 @@ def run_robustness_tests(model, device, args):
     else:
         print("Using project split test set for robustness evaluation.")
         _, _, test_loader_split, _, mean, std = create_dataloaders(batch_size=args.batch_size)
-        test_dataset = test_loader_split.dataset.dataset  # The base dataset (already normalized)
+        # Retrieve the base dataset even if wrapped (e.g., Subset inside DataLoader)
+        base_ds = test_loader_split.dataset
+        test_dataset = getattr(base_ds, 'dataset', base_ds)  # type: ignore[attr-defined]
+        # The base dataset is already normalized in the project split; avoid double normalization
         needs_normalization = False  # Avoid double normalization
 
     corruption_types = ['gaussian_noise', 'salt_pepper', 'brightness',
@@ -115,7 +160,7 @@ def run_robustness_tests(model, device, args):
             else:
                 full_transform = corruption_transform
 
-            test_dataset.transform = full_transform
+            test_dataset.transform = full_transform  # type: ignore[attr-defined]
             test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=2)
 
             correct, total = 0, 0
