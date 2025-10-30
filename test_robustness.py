@@ -17,51 +17,69 @@ from src.robustness import get_robustness_transform
 from src.data_loader import get_gtsrb_datasets, get_mean_std, create_dataloaders
 
 
+# ------------------------------------------------------------
+# PERFORMANCE TESTS
+# ------------------------------------------------------------
 def run_performance_tests(model, device, args):
-    """Measures inference latency, throughput, and GPU memory usage."""
+    """Measures inference latency, throughput, and GPU memory usage, and saves results."""
     print("\n--- Running Performance Tests ---")
     model.eval()
+    results = {}
 
-    # --- Latency and Throughput ---
     dummy_input = torch.randn(args.batch_size, 3, 32, 32, device=device)
 
-    # Warm-up GPU
+    # Warm-up
     for _ in range(10):
         _ = model(dummy_input)
 
-    # Measure (synchronize CUDA for accurate timing)
     if device.type == 'cuda':
         torch.cuda.synchronize()
     start_time = time.time()
+
     with torch.no_grad():
         for _ in range(100):
             _ = model(dummy_input)
+
     if device.type == 'cuda':
         torch.cuda.synchronize()
     end_time = time.time()
 
     total_time = end_time - start_time
     total_images = 100 * args.batch_size
-    images_per_second = total_images / total_time
-    latency_per_image = (total_time / 100) / args.batch_size * 1000  # in ms
+    results['throughput_images_per_sec'] = total_images / total_time
+    results['latency_ms_per_image'] = (total_time / 100) / args.batch_size * 1000
 
-    print(f"Inference Throughput: {images_per_second:.2f} images/sec")
-    print(f"Inference Latency: {latency_per_image:.4f} ms/image")
+    print(f"Inference Throughput: {results['throughput_images_per_sec']:.2f} images/sec")
+    print(f"Inference Latency: {results['latency_ms_per_image']:.4f} ms/image")
 
-    # --- GPU Memory Usage ---
+    # --- GPU Memory ---
     if device.type == 'cuda':
+        torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats(device)
         with torch.no_grad():
             _ = model(dummy_input)
         torch.cuda.synchronize()
-        peak_memory = torch.cuda.max_memory_allocated(device) / (1024 * 1024)  # in MB
+        peak_memory = torch.cuda.max_memory_allocated(device) / (1024 * 1024)
+        results['peak_gpu_memory_mb'] = peak_memory
         print(f"Peak GPU Memory Usage: {peak_memory:.2f} MB")
 
-    # --- Model Size ---
-    model_size = os.path.getsize(args.model_path) / 1024 / 1024  # in MB
+    # --- Model size ---
+    model_size = os.path.getsize(args.model_path) / 1024 / 1024
+    results['model_size_mb'] = model_size
     print(f"Model Size on Disk: {model_size:.2f} MB")
 
+    # --- Save ---
+    save_path = os.path.join(args.save_dir, 'performance_results.json')
+    with open(save_path, 'w', encoding='utf-8') as f:
+        json.dump(results, f, indent=4)
+    print(f"Performance results saved to {save_path}")
 
+    return results
+
+
+# ------------------------------------------------------------
+# ROBUSTNESS TESTS
+# ------------------------------------------------------------
 def run_robustness_tests(model, device, args):
     """Evaluates the model on various corruptions and severities."""
     print("\n--- Running Robustness Tests ---")
@@ -72,10 +90,12 @@ def run_robustness_tests(model, device, args):
         test_dataset = datasets.GTSRB(root='./data', split='test', download=True)
         _, train_dataset_no_norm = get_gtsrb_datasets()
         mean, std = get_mean_std(train_dataset_no_norm)
+        needs_normalization = True
     else:
         print("Using project split test set for robustness evaluation.")
         _, _, test_loader_split, _, mean, std = create_dataloaders(batch_size=args.batch_size)
-        test_dataset = test_loader_split.dataset.dataset  # underlying dataset
+        test_dataset = test_loader_split.dataset.dataset  # The base dataset (already normalized)
+        needs_normalization = False  # Avoid double normalization
 
     corruption_types = ['gaussian_noise', 'salt_pepper', 'brightness',
                         'contrast', 'rotation', 'occlusion']
@@ -86,16 +106,22 @@ def run_robustness_tests(model, device, args):
         for severity in range(1, 6):
             corruption_transform = get_robustness_transform(corruption, severity)
 
-            full_transform = transforms.Compose([
-                corruption_transform,
-                transforms.Normalize(mean, std)
-            ])
+            # Apply normalization only if needed
+            if needs_normalization:
+                full_transform = transforms.Compose([
+                    corruption_transform,
+                    transforms.Normalize(mean, std)
+                ])
+            else:
+                full_transform = corruption_transform
+
             test_dataset.transform = full_transform
-            test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
+            test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=2)
 
             correct, total = 0, 0
-            with torch.no_grad():
-                for inputs, labels in tqdm(test_loader, desc=f"{corruption} sev {severity}", leave=False):
+            model.eval()  # ensure eval mode for each corruption test
+            with torch.no_grad():  # disable gradient computation
+                for inputs, labels in tqdm(test_loader, desc=f"{corruption:<12} sev {severity}", leave=False):
                     inputs, labels = inputs.to(device), labels.to(device)
                     outputs = model(inputs)
                     _, predicted = torch.max(outputs.data, 1)
@@ -104,12 +130,14 @@ def run_robustness_tests(model, device, args):
 
             acc = 100 * correct / total
             results[corruption].append(acc)
-            print(f"Corruption: {corruption}, Severity: {severity}, Accuracy: {acc:.2f}%")
+            print(f"Corruption: {corruption:>12}, Severity: {severity}, Accuracy: {acc:.2f}%")
 
     return results
 
 
-
+# ------------------------------------------------------------
+# PLOTTING
+# ------------------------------------------------------------
 def plot_robustness_results(results, save_dir):
     """Plots and saves the robustness results."""
     df = pd.DataFrame(results, index=range(1, 6))
@@ -123,15 +151,20 @@ def plot_robustness_results(results, save_dir):
     plt.grid(True)
     plt.ylim(0, 100)
     plt.legend(title='Corruption Type')
+    plt.tight_layout()
 
     save_path = os.path.join(save_dir, 'robustness_curves.png')
     plt.savefig(save_path)
     plt.close()
-    print(f"\nRobustness plot saved to {save_path}")
+    print(f"Robustness plot saved to {save_path}")
 
 
+# ------------------------------------------------------------
+# MAIN
+# ------------------------------------------------------------
 def main(args):
     """Main function to orchestrate robustness and performance tests."""
+    torch.manual_seed(42)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
     os.makedirs(args.save_dir, exist_ok=True)
@@ -142,18 +175,17 @@ def main(args):
     model.eval()
     print(f"Model loaded from {args.model_path}")
 
-    # Run tests
     with torch.no_grad():
         robustness_results = run_robustness_tests(model, device, args)
-        run_performance_tests(model, device, args)
+        performance_results = run_performance_tests(model, device, args)
 
-    # Save results
-    results_path = os.path.join(args.save_dir, 'robustness_results.json')
+    # Combine and save results
+    all_results = {"robustness": robustness_results, "performance": performance_results}
+    results_path = os.path.join(args.save_dir, 'all_test_results.json')
     with open(results_path, 'w', encoding='utf-8') as f:
-        json.dump(robustness_results, f, indent=4)
-    print(f"Robustness results saved to {results_path}")
+        json.dump(all_results, f, indent=4)
+    print(f"All test results saved to {results_path}")
 
-    # Plot
     plot_robustness_results(robustness_results, args.save_dir)
 
 

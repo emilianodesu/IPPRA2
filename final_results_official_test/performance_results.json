@@ -1,0 +1,5 @@
+{
+    "throughput_images_per_sec": 4569.929731289065,
+    "latency_ms_per_image": 0.21882174536585808,
+    "model_size_mb": 4.4685564041137695
+}
