@@ -145,6 +145,20 @@ notebooks/01_data_exploration.ipynb
 * Visualizing training augmentations (stochastic).
 * Visualizing robustness corruptions at severities 1, 3, 5.
 
+notebooks/02_results.ipynb
+
+* Loads all experiment artifacts and produces a compact, visual summary:
+  * Cross-validation summary from `results_cv/cv_summary.json` (mean ± std accuracy).
+  * Split test and official test classification reports (accuracy and balanced accuracy).
+  * Computational performance from `performance_results.json` (throughput, latency, model size).
+* Robustness on the official test set:
+  * Styled table of accuracy (%) across corruption types vs. severities 1–5.
+  * Embedded plot `robustness_curves.png` showing accuracy degradation with severity.
+* Confusion matrix analysis (both split and official test sets):
+  * Displays four matrices each: absolute counts, row-normalized, and misclassification-weighted (row/column normalized).
+* Per-class deep dive (official test):
+  * Styled table sorted by F1-score, with precision, recall, F1, and support to spotlight challenging classes.
+
 ## Acknowledgements
 
 * GTSRB dataset via torchvision.datasets.GTSRB
